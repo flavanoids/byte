@@ -2,6 +2,7 @@
 #define BYTES_PROTOCOL_H
 
 #include "common.h"
+#include "platform.h"
 
 typedef enum {
     MSG_HELLO      = 1,
@@ -15,40 +16,54 @@ typedef enum {
     MSG_QUIT       = 9
 } msg_type_t;
 
+BYTES_PACKED_BEGIN
 typedef struct {
     uint8_t  type;
     uint16_t payload_len;
-} __attribute__((packed)) msg_header_t;
+} BYTES_PACKED_ATTR msg_header_t;
+BYTES_PACKED_END
 
+BYTES_PACKED_BEGIN
 typedef struct {
     char    name[MAX_NAME_LEN];
     uint8_t role;
-} __attribute__((packed)) msg_hello_t;
+} BYTES_PACKED_ATTR msg_hello_t;
+BYTES_PACKED_END
 
+BYTES_PACKED_BEGIN
 typedef struct {
     char    host_name[MAX_NAME_LEN];
     char    opponent_name[MAX_NAME_LEN];
     uint8_t assigned_id;
-} __attribute__((packed)) msg_welcome_t;
+} BYTES_PACKED_ATTR msg_welcome_t;
+BYTES_PACKED_END
 
+BYTES_PACKED_BEGIN
 typedef struct {
     uint8_t game_type;
     char    p1_name[MAX_NAME_LEN];
     char    p2_name[MAX_NAME_LEN];
-} __attribute__((packed)) msg_game_start_t;
+} BYTES_PACKED_ATTR msg_game_start_t;
+BYTES_PACKED_END
 
+BYTES_PACKED_BEGIN
 typedef struct {
     int32_t key;
-} __attribute__((packed)) msg_input_t;
+} BYTES_PACKED_ATTR msg_input_t;
+BYTES_PACKED_END
 
+BYTES_PACKED_BEGIN
 typedef struct {
     uint8_t winner_id;
     char    winner_name[MAX_NAME_LEN];
-} __attribute__((packed)) msg_game_over_t;
+} BYTES_PACKED_ATTR msg_game_over_t;
+BYTES_PACKED_END
 
+BYTES_PACKED_BEGIN
 typedef struct {
     uint8_t reason;
-} __attribute__((packed)) msg_pause_t;
+} BYTES_PACKED_ATTR msg_pause_t;
+BYTES_PACKED_END
 
 int proto_pack_header(uint8_t *buf, size_t buflen, uint8_t type, uint16_t payload_len);
 int proto_pack_hello(uint8_t *buf, size_t buflen, const char *name, uint8_t role);

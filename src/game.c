@@ -2,11 +2,11 @@
 #include "protocol.h"
 #include "ui.h"
 #include "pong.h"
+#include "platform.h"
 
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-#include <unistd.h>
 
 static const game_def_t *game_registry[] = {
     &pong_game_def
@@ -62,13 +62,6 @@ void game_session_cleanup(game_session_t *gs)
     gs->state = NULL;
 }
 
-static int64_t time_us(void)
-{
-    struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return (int64_t)ts.tv_sec * 1000000 + ts.tv_nsec / 1000;
-}
-
 void game_run_server(game_session_t *gs, net_server_t *srv, int player_client_idx)
 {
     const game_def_t *def = gs->def;
@@ -79,19 +72,17 @@ void game_run_server(game_session_t *gs, net_server_t *srv, int player_client_id
     keypad(stdscr, TRUE);
     timeout(TICK_INTERVAL_US / 1000 / 2);
 
-    int64_t last_tick = time_us();
+    int64_t last_tick = platform_mono_us();
     int reconnect_countdown = 0;
     int64_t disconnect_time = 0;
 
     while (gs->running) {
-        int64_t now = time_us();
+        int64_t now = platform_mono_us();
 
-        /* Handle pause / reconnect timeout */
         if (gs->paused) {
             int elapsed = (int)((now - disconnect_time) / 1000000);
             int remaining = RECONNECT_TIMEOUT_SEC - elapsed;
             if (remaining <= 0) {
-                /* Forfeit: the remaining player wins */
                 int winner = (player_client_idx >= 0) ? 2 : 1;
                 const char *wname = (winner == 1) ? gs->p1_name : gs->p2_name;
 
@@ -106,7 +97,6 @@ void game_run_server(game_session_t *gs, net_server_t *srv, int player_client_id
                 break;
             }
 
-            /* Check for reconnect */
             int new_idx = net_server_accept(srv, 100);
             if (new_idx >= 0) {
                 int rr = net_recv(srv->clients[new_idx].fd, recv_buf,
@@ -148,7 +138,6 @@ void game_run_server(game_session_t *gs, net_server_t *srv, int player_client_id
             continue;
         }
 
-        /* Accept new spectators during gameplay */
         int spec_idx = net_server_accept(srv, 0);
         if (spec_idx >= 0) {
             int rr = net_recv(srv->clients[spec_idx].fd, recv_buf,
@@ -180,7 +169,6 @@ void game_run_server(game_session_t *gs, net_server_t *srv, int player_client_id
             }
         }
 
-        /* Read remote player input */
         if (player_client_idx >= 0 && srv->clients[player_client_idx].connected) {
             int pr = net_poll_readable(srv->clients[player_client_idx].fd, 0);
             if (pr > 0) {
@@ -199,7 +187,6 @@ void game_run_server(game_session_t *gs, net_server_t *srv, int player_client_id
                         break;
                     }
                 } else if (rr < 0) {
-                    /* Player disconnected */
                     net_server_close_client(srv, player_client_idx);
                     player_client_idx = -1;
                     gs->paused = true;
@@ -226,7 +213,6 @@ void game_run_server(game_session_t *gs, net_server_t *srv, int player_client_id
             }
         }
 
-        /* Read local input (player 1 = server host) */
         int ch = getch();
         if (ch == 'q') {
             int qn = proto_pack_quit(send_buf, sizeof(send_buf));
@@ -238,19 +224,16 @@ void game_run_server(game_session_t *gs, net_server_t *srv, int player_client_id
         if (ch != ERR)
             def->handle_input(gs->state, 1, ch);
 
-        /* Tick at fixed rate */
         if (now - last_tick >= TICK_INTERVAL_US) {
             last_tick = now;
 
             def->update(gs->state);
 
-            /* Render locally */
             clear();
             def->render(gs->state, gs->p1_name, gs->p2_name,
                         false, gs->spectator_count);
             refresh();
 
-            /* Broadcast state to all clients */
             int slen = def->pack_state(gs->state, state_buf, sizeof(state_buf));
             if (slen > 0) {
                 int pkt = proto_pack_state(send_buf, sizeof(send_buf),
@@ -259,7 +242,6 @@ void game_run_server(game_session_t *gs, net_server_t *srv, int player_client_id
                     net_send_to_all(srv, send_buf, (size_t)pkt);
             }
 
-            /* Check game over */
             if (def->is_over(gs->state)) {
                 int winner = def->get_winner(gs->state);
                 const char *wname = (winner == 1) ? gs->p1_name : gs->p2_name;
@@ -276,11 +258,10 @@ void game_run_server(game_session_t *gs, net_server_t *srv, int player_client_id
             }
         }
 
-        /* Sleep to avoid busy-spinning */
-        int64_t elapsed = time_us() - now;
+        int64_t elapsed = platform_mono_us() - now;
         int64_t remaining_us = TICK_INTERVAL_US - elapsed;
         if (remaining_us > 1000)
-            usleep((unsigned)(remaining_us / 2));
+            platform_usleep((unsigned)(remaining_us / 2));
     }
 
     nodelay(stdscr, FALSE);
@@ -296,7 +277,6 @@ void game_run_client(game_session_t *gs, net_connection_t *conn)
     timeout(TICK_INTERVAL_US / 1000 / 2);
 
     while (gs->running) {
-        /* Read local input, send to server */
         int ch = getch();
         if (ch == 'q') {
             int qn = proto_pack_quit(send_buf, sizeof(send_buf));
@@ -311,7 +291,6 @@ void game_run_client(game_session_t *gs, net_connection_t *conn)
                 net_send(conn->fd, send_buf, (size_t)n, 100);
         }
 
-        /* Drain all pending messages, render only the latest state */
         bool got_state = false;
         for (;;) {
             int rr = net_recv(conn->fd, recv_buf, sizeof(recv_buf), got_state ? 0 : 10);
@@ -369,7 +348,7 @@ void game_run_client(game_session_t *gs, net_connection_t *conn)
 
         if (gs->paused) {
             ui_pause_overlay(RECONNECT_TIMEOUT_SEC);
-            usleep(500000);
+            platform_usleep(500000);
         }
     }
 

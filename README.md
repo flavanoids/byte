@@ -4,7 +4,7 @@ Terminal-based multiplayer games over LAN. Written in C.
 
 ![C11](https://img.shields.io/badge/C11-standard-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
-![Platform](https://img.shields.io/badge/platform-Linux-lightgrey)
+![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey)
 
 ## About
 
@@ -21,17 +21,41 @@ make
 
 One player hosts, the other joins with the host's IP. That's it.
 
-## Requirements
+## Building
 
-- GCC (C11)
-- ncursesw
-- pthreads
-- POSIX/Linux (macOS may work, Windows requires WSL)
-
-On Debian/Ubuntu:
+### Linux
 
 ```bash
-sudo apt install build-essential libncursesw5-dev
+sudo apt install build-essential libncursesw5-dev    # Debian/Ubuntu
+make
+```
+
+### macOS
+
+```bash
+xcode-select --install    # if needed
+brew install ncurses      # if needed
+make
+```
+
+### Windows (cross-compile from Linux)
+
+```bash
+sudo apt install gcc-mingw-w64-x86-64
+git clone --depth 1 https://github.com/wmcbrine/PDCurses.git deps/PDCurses
+cd deps/PDCurses/wincon && make CC=x86_64-w64-mingw32-gcc AR=x86_64-w64-mingw32-ar WIDE=Y && cd ../../..
+make windows
+```
+
+Produces `bin/bytes.exe` -- a statically linked Windows binary with no runtime dependencies.
+
+### Windows (native)
+
+Install [MSYS2](https://www.msys2.org/), then from a UCRT64 shell:
+
+```bash
+pacman -S mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-pdcurses make
+make
 ```
 
 ## Usage
@@ -39,6 +63,8 @@ sudo apt install build-essential libncursesw5-dev
 ```
 ./bin/bytes                 # default port 7500
 ./bin/bytes --port 8080     # custom port
+./bin/bytes --solo          # single player vs CPU
+./bin/bytes --test-keys     # input diagnostics
 ```
 
 **Host** a game, **join** by IP, or **spectate** an ongoing match. Navigate menus with arrow keys, confirm with Enter.
@@ -47,10 +73,12 @@ sudo apt install build-essential libncursesw5-dev
 
 - LAN multiplayer over TCP
 - Host, join, or spectate
+- Solo play vs CPU
 - 30 Hz server-authoritative game loop
 - Automatic pause & reconnect on disconnect (30s window)
 - Persistent local win/loss stats (`~/.bytes_stats`)
-- Unicode box-drawing UI via ncursesw
+- Cross-platform: Linux, macOS, Windows
+- Unicode box-drawing UI
 
 ## Architecture
 
@@ -62,10 +90,11 @@ src/
 ├── network.c    TCP server/client with length-prefix framing
 ├── protocol.c   Message pack/unpack (little-endian wire format)
 ├── ui.c         ncurses menus, overlays, screens
-└── stats.c      Persistent win/loss tracking
+├── stats.c      Persistent win/loss tracking
+└── platform.c   OS abstraction (sockets, time, paths)
 ```
 
-Games implement a simple vtable (`game_def_t`) — init, input, update, render, serialize, deserialize, win check. The engine handles networking, protocol, and session management.
+Games implement a simple vtable (`game_def_t`) -- init, input, update, render, serialize, deserialize, win check. The engine handles networking, protocol, and session management.
 
 ## Adding a Game
 

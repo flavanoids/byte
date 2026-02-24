@@ -1,8 +1,8 @@
 #include "stats.h"
 #include "common.h"
 #include "ui.h"
+#include "platform.h"
 
-#include <ncurses.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -11,11 +11,9 @@ void stats_init(stats_t *st)
 {
     memset(st, 0, sizeof(*st));
 
-    const char *home = getenv("HOME");
-    if (home != NULL)
-        snprintf(st->path, sizeof(st->path), "%s/.bytes_stats", home);
-    else
-        snprintf(st->path, sizeof(st->path), ".bytes_stats");
+    char home[240];
+    platform_get_home_dir(home, sizeof(home));
+    snprintf(st->path, sizeof(st->path), "%s/.bytes_stats", home);
 }
 
 bool stats_load(stats_t *st)
@@ -34,7 +32,6 @@ bool stats_load(stats_t *st)
         const char *key = line;
         const char *val = eq + 1;
 
-        /* Trim trailing newline */
         char *nl = strchr(val, '\n');
         if (nl != NULL)
             *nl = '\0';
@@ -128,7 +125,6 @@ void stats_display(const stats_t *st)
     int by = 4;
     ui_draw_box(by, bx, bh, bw);
 
-    /* Display per-game stats */
     const char *games[] = { "pong" };
     int ngames = 1;
     int line = by + 1;

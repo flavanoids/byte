@@ -3,9 +3,7 @@
 
 #include "common.h"
 #include "network.h"
-#include <ncurses.h>
-#include <stdbool.h>
-#include <stdint.h>
+#include "platform.h"
 
 typedef struct game_def game_def_t;
 

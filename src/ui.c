@@ -1,9 +1,9 @@
 #include "ui.h"
+#include "platform.h"
 
 #include <locale.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
 #include <wchar.h>
 
 static const char *TITLE_ART[] = {
@@ -31,7 +31,9 @@ void ui_init(void)
 {
     setlocale(LC_ALL, "");
     initscr();
+#ifdef ESCDELAY
     ESCDELAY = 25;
+#endif
     cbreak();
     noecho();
     curs_set(0);
@@ -198,7 +200,6 @@ void ui_get_host_and_port(char *host, size_t hostlen, int *port, int default_por
     getnstr(input, 63);
     input[63] = '\0';
 
-    /* Parse host:port or just host */
     char *colon = strrchr(input, ':');
     if (colon != NULL) {
         *colon = '\0';
@@ -286,7 +287,7 @@ void ui_player_joined(const char *p1_name, const char *p2_name)
     attroff(COLOR_PAIR(COLOR_P2) | A_BOLD);
 
     refresh();
-    usleep(1500000);
+    platform_usleep(1500000);
 }
 
 void ui_countdown(const char *p1_name, const char *p2_name)
@@ -316,7 +317,7 @@ void ui_countdown(const char *p1_name, const char *p2_name)
         attroff(COLOR_PAIR(COLOR_MENU) | A_BOLD);
 
         refresh();
-        usleep(1000000);
+        platform_usleep(1000000);
     }
 
     clear();
@@ -325,7 +326,7 @@ void ui_countdown(const char *p1_name, const char *p2_name)
     mvaddstr(rows / 2, (cols - (int)strlen(go)) / 2, go);
     attroff(COLOR_PAIR(COLOR_MENU) | A_BOLD);
     refresh();
-    usleep(500000);
+    platform_usleep(500000);
 }
 
 void ui_game_over(const char *winner_name, bool you_won)
@@ -354,7 +355,6 @@ void ui_game_over(const char *winner_name, bool you_won)
     mvaddstr(cy + 2, (cols - (int)strlen(buf)) / 2, buf);
     attroff(COLOR_PAIR(COLOR_BORDER) | A_BOLD);
 
-    /* Terminal bell */
     putchar('\a');
     fflush(stdout);
 

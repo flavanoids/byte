@@ -5,29 +5,34 @@
 #include "protocol.h"
 #include "stats.h"
 #include "ui.h"
+#include "platform.h"
 
 #include <math.h>
-#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-#include <unistd.h>
 
-static volatile sig_atomic_t g_quit = 0;
+#ifndef BYTES_WINDOWS
+#include <signal.h>
+#endif
 
+static volatile int g_quit = 0;
+
+#ifdef BYTES_WINDOWS
+static BOOL WINAPI console_handler(DWORD sig)
+{
+    (void)sig;
+    g_quit = 1;
+    return TRUE;
+}
+#else
 static void handle_sigint(int sig)
 {
     (void)sig;
     g_quit = 1;
 }
-
-static int64_t mono_us(void)
-{
-    struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return (int64_t)ts.tv_sec * 1000000 + ts.tv_nsec / 1000;
-}
+#endif
 
 static int parse_port(int argc, char **argv, int default_port)
 {
@@ -94,7 +99,6 @@ static void draw_test_screen(int last_key, const seen_keys_t *seen,
     attroff(COLOR_PAIR(COLOR_DIM) | A_DIM);
     cy += 2;
 
-    /* Last key pressed */
     if (last_key != ERR) {
         attron(COLOR_PAIR(COLOR_BORDER) | A_BOLD);
         mvprintw(cy, cx, "Last key:  ");
@@ -108,7 +112,6 @@ static void draw_test_screen(int last_key, const seen_keys_t *seen,
     }
     cy += 2;
 
-    /* Checklist box */
     int bw = 38;
     int bh = 12;
     int bx = (cols - bw) / 2;
@@ -147,7 +150,6 @@ static void draw_test_screen(int last_key, const seen_keys_t *seen,
         }
     }
 
-    /* Key count */
     attron(COLOR_PAIR(COLOR_BORDER));
     mvprintw(cy + nck + 1, bx + 3, "Total detected: ");
     int total = 0;
@@ -164,7 +166,6 @@ static void draw_test_screen(int last_key, const seen_keys_t *seen,
 
     cy += bh + 1;
 
-    /* History */
     if (hist_count > 0) {
         attron(COLOR_PAIR(COLOR_BORDER) | A_BOLD);
         mvaddstr(cy, bx, "History: ");
@@ -185,7 +186,9 @@ static void run_test_keys(void)
 {
     keypad(stdscr, TRUE);
     nodelay(stdscr, FALSE);
+#ifdef ESCDELAY
     ESCDELAY = 10;
+#endif
 
     seen_keys_t seen;
     memset(&seen, 0, sizeof(seen));
@@ -225,7 +228,7 @@ static void run_test_keys(void)
         draw_test_screen(last_key, &seen, hist, hist_count);
 
         if (ch == 'q') {
-            usleep(600000);
+            platform_usleep(600000);
             break;
         }
     }
@@ -240,15 +243,17 @@ static void run_solo(stats_t *st)
     game_session_init(&gs, def, "You", "CPU", true, false, 1);
 
     keypad(stdscr, TRUE);
+#ifdef ESCDELAY
     ESCDELAY = 10;
+#endif
 
     ui_countdown("You", "CPU");
 
-    int64_t last_tick = mono_us();
+    int64_t last_tick = platform_mono_us();
     int ai_tick = 0;
 
     while (gs.running && !g_quit) {
-        int64_t now = mono_us();
+        int64_t now = platform_mono_us();
 
         timeout(TICK_INTERVAL_US / 1000 / 2);
         int ch = getch();
@@ -292,10 +297,10 @@ static void run_solo(stats_t *st)
             }
         }
 
-        int64_t elapsed = mono_us() - now;
+        int64_t elapsed = platform_mono_us() - now;
         int64_t remaining_us = TICK_INTERVAL_US - elapsed;
         if (remaining_us > 1000)
-            usleep((unsigned)(remaining_us / 2));
+            platform_usleep((unsigned)(remaining_us / 2));
     }
 
     nodelay(stdscr, FALSE);
@@ -319,7 +324,6 @@ static void run_host(int port, stats_t *st)
     net_get_local_ip(ip, sizeof(ip));
     ui_waiting_screen(my_name, ip, port);
 
-    /* Wait for a player to connect */
     int player_idx = -1;
     nodelay(stdscr, TRUE);
     while (player_idx < 0 && !g_quit) {
@@ -340,7 +344,6 @@ static void run_host(int port, stats_t *st)
     }
     nodelay(stdscr, FALSE);
 
-    /* Receive HELLO from client */
     uint8_t recv_buf[MSG_HEADER_SIZE + MAX_MSG_PAYLOAD];
     int rr = net_recv(srv.clients[player_idx].fd, recv_buf, sizeof(recv_buf), 5000);
     if (rr <= 0) {
@@ -370,7 +373,6 @@ static void run_host(int port, stats_t *st)
     srv.clients[player_idx].player_id = 2;
     strncpy(srv.clients[player_idx].name, peer_name, MAX_NAME_LEN - 1);
 
-    /* Send WELCOME */
     uint8_t send_buf[MSG_HEADER_SIZE + MAX_MSG_PAYLOAD];
     int wn = proto_pack_welcome(send_buf, sizeof(send_buf), my_name, peer_name, 2);
     if (wn > 0)
@@ -378,7 +380,6 @@ static void run_host(int port, stats_t *st)
 
     ui_player_joined(my_name, peer_name);
 
-    /* Send GAME_START */
     int gn = proto_pack_game_start(send_buf, sizeof(send_buf),
                                    GAME_PONG, my_name, peer_name);
     if (gn > 0)
@@ -386,13 +387,11 @@ static void run_host(int port, stats_t *st)
 
     ui_countdown(my_name, peer_name);
 
-    /* Run game */
     const game_def_t *def = game_get_def(GAME_PONG);
     game_session_t gs;
     game_session_init(&gs, def, my_name, peer_name, true, false, 1);
     game_run_server(&gs, &srv, player_idx);
 
-    /* Record stats */
     if (def->is_over(gs.state)) {
         int winner = def->get_winner(gs.state);
         stats_record_game(st, "pong", winner == 1);
@@ -421,13 +420,11 @@ static void run_join(int default_port, stats_t *st)
         return;
     }
 
-    /* Send HELLO */
     uint8_t send_buf[MSG_HEADER_SIZE + MAX_MSG_PAYLOAD];
     int hn = proto_pack_hello(send_buf, sizeof(send_buf), my_name, ROLE_PLAYER);
     if (hn > 0)
         net_send(conn.fd, send_buf, (size_t)hn, 1000);
 
-    /* Receive WELCOME */
     uint8_t recv_buf[MSG_HEADER_SIZE + MAX_MSG_PAYLOAD];
     int rr = net_recv(conn.fd, recv_buf, sizeof(recv_buf), 5000);
     if (rr <= 0) {
@@ -458,7 +455,6 @@ static void run_join(int default_port, stats_t *st)
 
     ui_player_joined(host_name, my_name);
 
-    /* Wait for GAME_START */
     rr = net_recv(conn.fd, recv_buf, sizeof(recv_buf), 10000);
     if (rr <= 0) {
         net_client_disconnect(&conn);
@@ -523,13 +519,11 @@ static void run_watch(int default_port)
         return;
     }
 
-    /* Send HELLO as spectator */
     uint8_t send_buf[MSG_HEADER_SIZE + MAX_MSG_PAYLOAD];
     int hn = proto_pack_hello(send_buf, sizeof(send_buf), my_name, ROLE_SPECTATOR);
     if (hn > 0)
         net_send(conn.fd, send_buf, (size_t)hn, 1000);
 
-    /* Receive WELCOME */
     uint8_t recv_buf[MSG_HEADER_SIZE + MAX_MSG_PAYLOAD];
     int rr = net_recv(conn.fd, recv_buf, sizeof(recv_buf), 5000);
     if (rr <= 0) {
@@ -553,7 +547,6 @@ static void run_watch(int default_port)
     msg_welcome_t welcome;
     proto_unpack_welcome(recv_buf + MSG_HEADER_SIZE, hdr.payload_len, &welcome);
 
-    /* Wait for GAME_START */
     rr = net_recv(conn.fd, recv_buf, sizeof(recv_buf), 30000);
     if (rr <= 0) {
         net_client_disconnect(&conn);
@@ -594,8 +587,14 @@ static void run_watch(int default_port)
 
 int main(int argc, char **argv)
 {
+#ifdef BYTES_WINDOWS
+    SetConsoleCtrlHandler(console_handler, TRUE);
+#else
     signal(SIGINT, handle_sigint);
-    signal(SIGPIPE, SIG_IGN);
+#endif
+
+    platform_ignore_sigpipe();
+    platform_net_init();
 
     int port = parse_port(argc, argv, DEFAULT_PORT);
     bool flag_test_keys = parse_flag(argc, argv, "--test-keys");
@@ -610,12 +609,14 @@ int main(int argc, char **argv)
     if (flag_test_keys) {
         run_test_keys();
         ui_cleanup();
+        platform_net_cleanup();
         return 0;
     }
 
     if (flag_solo) {
         run_solo(&stats);
         ui_cleanup();
+        platform_net_cleanup();
         return 0;
     }
 
@@ -647,5 +648,6 @@ int main(int argc, char **argv)
     }
 
     ui_cleanup();
+    platform_net_cleanup();
     return 0;
 }

@@ -2,8 +2,7 @@
 #define BYTES_UI_H
 
 #include "common.h"
-#include <ncurses.h>
-#include <stdbool.h>
+#include "platform.h"
 
 typedef enum {
     MENU_HOST = 0,
